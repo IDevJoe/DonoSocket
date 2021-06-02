@@ -1,7 +1,8 @@
 import express, {Express} from 'express';
 import bp from 'body-parser';
-import {AuthState, Configuration, genNewState, getExpState, getRedirectUri} from "./util";
+import {AuthState, Configuration, genNewState, getExpState, getRedirectUri, OAuthToken, restoreState} from "./util";
 import fetch from 'node-fetch';
+import fs from 'fs';
 
 const config: Configuration = require('./config.json');
 const app: Express = express();
@@ -28,15 +29,24 @@ app.get('/auth2', (req, res) => {
         res.json({info: "expired state"});
         return;
     }
+    if(req.query.code === undefined) {
+        res.json({error: "No code supplied."});
+        return;
+    }
 
-    res.send('die');
+    res.json({info: "Processing authorization"});
     fetch('https://id.twitch.tv/oauth2/token?client_id=' + encodeURIComponent(config.twitch.cid) +
         "&client_secret=" + encodeURIComponent(config.twitch.secret) +
         "&code=" + encodeURIComponent(req.query.code.toString()) +
         "&grant_type=authorization_code&redirect_uri=" + encodeURIComponent(getRedirectUri(req)), {method: 'POST'}).then(e => e.json()).then(e => {
             console.dir(e);
-            console.log(`Completed authorization for ${req.query.code.toString()}`);
-
+            if(e.access_token === undefined) {
+                console.log(`Authorization failed for ${req.query.state}`);
+                return;
+            }
+            console.log(`Completed authorization for ${req.query.state}. Downloading and restoring TTV state.`);
+            let x: OAuthToken = e;
+            restoreState(x);
     }).catch(e => {
         console.dir(e);
     });
