@@ -1,16 +1,39 @@
 import express, {Express} from 'express';
 import bp from 'body-parser';
-import {AuthState, Configuration, genNewState, getExpState, getRedirectUri, OAuthToken, restoreState} from "./util";
+import {
+    AuthState,
+    Configuration,
+    genNewState,
+    getExpState,
+    getRedirectUri,
+    OAuthToken,
+    pullState,
+    restoreState, StoredTTVState
+} from "./util";
 import fetch from 'node-fetch';
 import fs from 'fs';
+import RewardsManager from "./managers/rewardsManager";
+import SubscriptionsManager from "./managers/subscriptionsManager";
+import {getCoreManager} from "./managers/manager";
 
 const config: Configuration = require('./config.json');
 const app: Express = express();
-app.use(bp.json());
+
+new RewardsManager();
+new SubscriptionsManager();
+
+app.use(bp.text({type: "*/*"}));
 
 app.get('/', (req, res) => {
     res.json({info: "DonoSocket Server"});
 });
+
+app.post('/force', (req, res) => {
+    if(!config.enable_test) return res.json({error: "Not enabled"});
+    let state: StoredTTVState = pullState(parseInt(req.query.id.toString()));
+    res.json({success: true});
+    restoreState(state.token);
+})
 
 app.get('/authorize', (req, res) => {
     let sec = config.force_secure !== undefined ? config.force_secure : req.secure;
@@ -46,10 +69,14 @@ app.get('/auth2', (req, res) => {
             }
             console.log(`Completed authorization for ${req.query.state}. Downloading and restoring TTV state.`);
             let x: OAuthToken = e;
+            x.actual_expiry = (Date.now()/1000) + x.expires_in;
             restoreState(x);
     }).catch(e => {
         console.dir(e);
     });
 });
+
+let subManager : SubscriptionsManager = <SubscriptionsManager> getCoreManager().getManager('SubscriptionsManager');
+app.post('/twitch/incoming', (req, res) => subManager.processIncoming(req, res));
 
 app.listen(80);
