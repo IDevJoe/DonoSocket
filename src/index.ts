@@ -15,12 +15,16 @@ import fs from 'fs';
 import RewardsManager from "./managers/rewardsManager";
 import SubscriptionsManager from "./managers/subscriptionsManager";
 import {getCoreManager} from "./managers/manager";
+import expressWs from "express-ws";
+import WebsocketManager from "./managers/websocketManager";
 
 const config: Configuration = require('./config.json');
 const app: Express = express();
+const ews: expressWs.Instance = expressWs(app);
 
 new RewardsManager();
 new SubscriptionsManager();
+new WebsocketManager();
 
 app.use(bp.text({type: "*/*"}));
 
@@ -33,7 +37,16 @@ app.post('/force', (req, res) => {
     let state: StoredTTVState = pullState(parseInt(req.query.id.toString()));
     res.json({success: true});
     restoreState(state.token);
-})
+});
+
+let subManager : SubscriptionsManager = <SubscriptionsManager> getCoreManager().getManager('SubscriptionsManager');
+
+app.post('/testfollow', (req, res) => {
+    if(!config.enable_test) return res.json({error: "Not enabled"});
+    let state: StoredTTVState = pullState(parseInt(req.query.id.toString()));
+    subManager.subscribe(state, "channel.follow");
+    res.json({success: true});
+});
 
 app.get('/authorize', (req, res) => {
     let sec = config.force_secure !== undefined ? config.force_secure : req.secure;
@@ -76,7 +89,16 @@ app.get('/auth2', (req, res) => {
     });
 });
 
-let subManager : SubscriptionsManager = <SubscriptionsManager> getCoreManager().getManager('SubscriptionsManager');
+let wsmgr: WebsocketManager = <WebsocketManager>getCoreManager().getManager("WebsocketManager");
+
+ews.app.ws('/ws', (ws, req) => {
+    if(req.query.secret.toString() != config.ws_secret) {
+        ws.close(1001);
+        return;
+    }
+    wsmgr.handleSocket(ws);
+});
+
 app.post('/twitch/incoming', (req, res) => subManager.processIncoming(req, res));
 
 app.listen(80);

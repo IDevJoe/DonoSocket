@@ -1,7 +1,8 @@
-import {Manager} from "./manager";
+import {getCoreManager, Manager} from "./manager";
 import {appRequest, Configuration, pullState, requestAuth, saveState, StoredTTVState} from "../util";
 import {Request} from "express";
 import crypto from 'crypto';
+import WebsocketManager from "./websocketManager";
 const config: Configuration = require('../config.json');
 
 export interface Transport {
@@ -66,7 +67,7 @@ export default class SubscriptionsManager extends Manager {
 
     }
 
-    private subscribe(state: StoredTTVState, type: string) {
+    public subscribe(state: StoredTTVState, type: string) {
         let data = this.getManagerData(state);
         if(data.secrets == undefined) data.secrets = {};
         let secret = crypto.randomBytes(15).toString("hex");
@@ -93,6 +94,8 @@ export default class SubscriptionsManager extends Manager {
                 return;
             }
             let sub: Subscription = e.data[0];
+            if(this.subscriptions[state.id] === undefined) this.subscriptions[state.id] = [];
+            this.subscriptions[state.id].push(sub);
             data.secrets[sub.id] = secret;
             this.tempSecrets[sub.id] = secret;
             saveState(state);
@@ -131,12 +134,25 @@ export default class SubscriptionsManager extends Manager {
                 break;
             case "notification":
                 res.sendStatus(204);
+                let wsmgr: WebsocketManager = <WebsocketManager>getCoreManager().getManager("WebsocketManager");
+                wsmgr.broadcast({
+                    eid: sub['type'],
+                    event: bd.event
+                });
                 break;
             case "revocation":
                 console.log("REVOKED");
+                let x = this.subscriptions[state.id].find(e => e.id === sub['id']);
+                let ind = this.subscriptions[state.id].indexOf(x);
+                this.subscriptions[state.id].splice(ind, 1);
+                delete data.secrets[sub['id']];
+                appRequest('https://api.twitch.tv/helix/eventsub/subscriptions?id=' + encodeURIComponent(sub['id']), {method: "DELETE"}).then(e => {
+                    console.log("DELETE revoked subscription " + e.status);
+                });
                 res.sendStatus(204);
                 break;
         }
+        saveState(state);
 
     }
 

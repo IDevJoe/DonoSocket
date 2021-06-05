@@ -38,6 +38,7 @@ export interface Configuration {
     authorized_channels: Array<string>,
     public_url: string,
     subscribe: Array<string>,
+    ws_secret: string,
     scopes: Array<string>,
     force_secure: boolean,
     twitch: TwitchConfig,
